@@ -46,15 +46,19 @@ type Session struct {
 	// Buffered channel of outbound messages.
 	send chan []byte
 
+	// Client subscriptions
+	subscriptions map[string]*SubscriptionContext
+
 	// UserID of logged user
 	userID string
 }
 
 func newSession(server *Server, socket *websocket.Conn) *Session {
 	s := &Session{
-		server: server,
-		socket: socket,
-		send:   make(chan []byte, 256),
+		server:        server,
+		socket:        socket,
+		send:          make(chan []byte, 256),
+		subscriptions: make(map[string]*SubscriptionContext),
 	}
 
 	s.run()
@@ -110,9 +114,9 @@ func (c *Session) readPump() {
 		case "method":
 			c.handleMethod(m)
 		case "sub":
-			break
+			c.handleSubscribe(m)
 		case "unsub":
-			break
+			c.handleUnsubscribe(m)
 		default:
 			fmt.Println("error: Unknown message received from client")
 		}
@@ -210,6 +214,49 @@ func (c *Session) handleMethod(msg Message) {
 	c.sendMethodUpdated(&ctx)
 }
 
+func (c *Session) handleSubscribe(msg Message) {
+	ctx := NewSubscriptionContext(msg, *c)
+
+	id := generateID(17)
+
+	c.subscriptions[id] = ctx
+
+	handler, ok := c.server.publications[msg.Name]
+	if !ok {
+		c.sendSubscriptionError(ctx, &Error{
+			Type:    "Server.Error",
+			Error:   "unknown-subscription",
+			Reason:  fmt.Sprintf("Subscription '%s' not found", msg.Name),
+			Message: fmt.Sprintf("Subscription '%s' not found [unknown-subscription]", msg.Name),
+		})
+		return
+	}
+
+	handler(*ctx)
+}
+
+func (c *Session) handleUnsubscribe(msg Message) {
+	_, ok := c.subscriptions[msg.ID]
+	if !ok {
+		msg := map[string]interface{}{
+			"msg": "nosub",
+			"id":  msg.ID,
+			"error": Error{
+				Type:    "Server.Error",
+				Error:   "unknown-subscription",
+				Reason:  fmt.Sprintf("Subscription ID '%s' not found", msg.ID),
+				Message: fmt.Sprintf("Subscription ID '%s' not found [unknown-subscription]", msg.ID),
+			},
+		}
+		c.writeMessage(msg)
+		return
+	}
+
+	delete(c.subscriptions, msg.ID)
+
+	// Update subscriptions
+}
+
 func (c *Session) sendServerID() {
 	msg := map[string]string{
 		"server_id": c.server.id,
@@ -275,6 +322,55 @@ func (c *Session) sendMethodUpdated(ctx *MethodContext) error {
 	msg := map[string]interface{}{
 		"msg":     "updated",
 		"methods": []string{ctx.ID},
+	}
+	return c.writeMessage(msg)
+}
+
+func (c *Session) sendSubscriptionError(ctx *SubscriptionContext, e *Error) error {
+	msg := map[string]interface{}{
+		"msg":   "nosub",
+		"id":    ctx.ID,
+		"error": *e,
+	}
+	return c.writeMessage(msg)
+}
+
+func (c *Session) sendSubscriptionReady(ctx *SubscriptionContext) error {
+	ctx.ready = true
+
+	msg := map[string]interface{}{
+		"msg":  "ready",
+		"subs": []string{ctx.ID},
+	}
+	return c.writeMessage(msg)
+}
+
+func (c *Session) sendAdded(ctx *SubscriptionContext, collection string, id string, fields map[string]interface{}) error {
+	msg := map[string]interface{}{
+		"msg":        "added",
+		"collection": collection,
+		"id":         id,
+		"fields":     fields,
+	}
+	return c.writeMessage(msg)
+}
+
+func (c *Session) sendChanged(ctx *SubscriptionContext, collection string, id string, fields map[string]interface{}, cleared map[string]interface{}) error {
+	msg := map[string]interface{}{
+		"msg":        "changed",
+		"collection": collection,
+		"id":         id,
+		"fields":     fields,
+		"cleared":    cleared,
+	}
+	return c.writeMessage(msg)
+}
+
+func (c *Session) sendRemoved(ctx *SubscriptionContext, collection string, id string) error {
+	msg := map[string]interface{}{
+		"msg":        "removed",
+		"collection": collection,
+		"id":         id,
 	}
 	return c.writeMessage(msg)
 }

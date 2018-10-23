@@ -4,7 +4,7 @@ import (
 	"sync"
 )
 
-type Emiter struct {
+type Emitter struct {
 	// Mutex
 	mu sync.Mutex
 
@@ -15,14 +15,14 @@ type Emiter struct {
 	listeners map[string][]func(string, ...interface{})
 }
 
-func (e *Emiter) init() {
+func (e *Emitter) init() {
 	if !e.initialized {
 		e.listeners = make(map[string][]func(string, ...interface{}))
 		e.initialized = true
 	}
 }
 
-func (e *Emiter) On(event string, fn func(string, ...interface{})) {
+func (e *Emitter) On(event string, fn func(string, ...interface{})) {
 	e.mu.Lock()
 	e.init()
 	defer e.mu.Unlock()
@@ -34,7 +34,7 @@ func (e *Emiter) On(event string, fn func(string, ...interface{})) {
 	}
 }
 
-func (e *Emiter) Emit(event string, params ...interface{}) {
+func (e *Emitter) Emit(event string, params ...interface{}) {
 	e.mu.Lock()
 	e.init()
 	defer e.mu.Unlock()

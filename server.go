@@ -6,7 +6,7 @@ import (
 )
 
 type Server struct {
-	Emiter
+	Emitter
 
 	id string
 
@@ -23,15 +23,19 @@ type Server struct {
 
 	// Method handlers
 	methods map[string]MethodHandler
+
+	// Publication handlers
+	publications map[string]PublicationHandler
 }
 
 func NewServer() *Server {
 	return &Server{
-		id:         "0",
-		register:   make(chan *Session),
-		unregister: make(chan *Session),
-		sessions:   make(map[*Session]bool),
-		methods:    make(map[string]MethodHandler),
+		id:           "0",
+		register:     make(chan *Session),
+		unregister:   make(chan *Session),
+		sessions:     make(map[*Session]bool),
+		methods:      make(map[string]MethodHandler),
+		publications: make(map[string]PublicationHandler),
 	}
 }
 
@@ -59,6 +63,11 @@ func (s *Server) Run() {
 // Method registers new method
 func (s *Server) Method(name string, fn MethodHandler) {
 	s.methods[name] = fn
+}
+
+// Publish registers new publication
+func (s *Server) Publish(name string, fn PublicationHandler) {
+	s.publications[name] = fn
 }
 
 // ServeWs handles websocket requests from the peer.
